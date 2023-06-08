@@ -1,4 +1,5 @@
-# Gae In Pytorch
+# PyTorch Implementation of GAE 
+
 Graph Auto-Encoder in PyTorch
 
 This is a PyTorch/Pyro implementation of the Variational Graph Auto-Encoder model described in the paper:
