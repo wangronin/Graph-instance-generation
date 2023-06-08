@@ -9,7 +9,6 @@
 *.ipynb
 *.tex
 data/
-model/
 
 **/*.pyc
 **/**/*.pyc
