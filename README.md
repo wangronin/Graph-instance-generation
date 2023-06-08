@@ -1,29 +1,26 @@
-# PyTorch Implementation of GAE 
+# PyTorch Implementation of GAE
 
 Graph Auto-Encoder in PyTorch
 
 This is a PyTorch/Pyro implementation of the Variational Graph Auto-Encoder model described in the paper:
 
-T. N. Kipf, M. Welling, [Variational Graph Auto-Encoders](https://arxiv.org/abs/1611.07308), NIPS Workshop on Bayesian Deep Learning (2016)
+T. N. Kipf, M. Welling, [Variational Graph Auto-Encoders](https://arxiv.org/abs/1611.07308).
 
-This repository uses some of the code found here: https://github.com/tkipf/pygcn and https://github.com/tkipf/gae.
+## Requirements
 
-### Requirements
-- Python 2.7
-- Pyro 0.3.0
-- PyTorch 1.0
-- networkx
-- scikit-learn
-- scipy
-- numpy
-- matplotlib
-- pickle
+Tested on:
 
+- Python 3.11
+- pyro-ppl==0.3.0
+- torch==2.0.1
+- networkx==3.1
 
-### To train
-After installing all requirements:
+## Training
+
+To construct instances of the Erdős–Rényi model:
+
 ```bash
-python train.py
+python train_gcn.py
 ```
 
 <!-- ### Notes
