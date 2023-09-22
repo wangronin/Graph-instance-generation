@@ -3,12 +3,15 @@ import random
 import sys
 import time
 
+import pandas as pd
+
 sys.path.insert(0, "./")
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.sparse as sp
+import seaborn as sns
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -17,6 +20,15 @@ from torch.utils.data import DataLoader, Dataset, Subset
 
 from model.gae import GAE
 from utils import show_graph_with_labels
+
+__author__ = "Hao Wang"
+
+# TODO:
+# 1. measure the empirical edge probability and compare the original graphs
+# 2. visualize the latent space and check if we sample a set of latent points therein, what
+# graph will be generated/decoded, and what is the empirical edge prob. we will get?
+# 3. Now, if we encode a graph with different edge prob., then where it lands in the latent space?
+# 4. Do we see any structures in the generated graphs?
 
 
 def get_normalized_laplacian(A: np.ndarray) -> np.ndarray:
@@ -87,8 +99,7 @@ def train(
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
         optimizer.step()
-
-        print(f"Batch {batch_num + 1}/{N} - loss: {loss:.5f} - {time.time() - t:.5f} seconds")
+        # print(f"Batch {batch_num + 1}/{N} - loss: {loss:.5f} - {time.time() - t:.5f} seconds")
         t = time.time()
     return total_loss / N
 
@@ -96,7 +107,6 @@ def train(
 def evaluate(
     model: nn.Module,
     data: DataLoader,
-    args,
 ) -> Tuple[float, Dict]:
     model.eval()
     total_loss = 0
@@ -121,7 +131,8 @@ def main():
 
     # prepare the graph data set
     n_features = 20
-    adjacencies, features = get_ER_instances(N=10, p=0.5, n_features=n_features, n_instances=50)
+    n_nodes = 10
+    adjacencies, features = get_ER_instances(N=n_nodes, p=0.2, n_features=n_features, n_instances=100)
     dataset = GraphDataset(adjacencies, features, device)
     N = len(dataset)
     train_size = int(0.75 * N)
@@ -139,12 +150,10 @@ def main():
     try:
         best_valid_loss = None
         for epoch in range(1, args.epochs + 1):
-            train_loss, train_score = train(model, train_loader, optimizer, args)
-            test_loss, test_score = evaluate(model, test_dataloader)
+            train_loss = train(model, train_loader, optimizer, args)
+            test_loss = evaluate(model, test_dataloader)
             scheduler.step()
-            print()
             print(f"epoch {epoch}/{args.epochs} - train loss: {train_loss:.5f} - test loss: {test_loss:.5f}")
-            print()
             if not best_valid_loss or test_loss < best_valid_loss:
                 best_valid_loss = test_loss
                 # TODO: save the model here
@@ -153,30 +162,66 @@ def main():
         print("[Ctrl+C] Training stopped!")
 
     # plot the reconstructed graphs
-    data = DataLoader(Subset(dataset, train_idx), batch_size=args.batch_size, shuffle=False)
+    edge_prob_pred = []
+    edge_prob_input = []
+    data = DataLoader(Subset(dataset, train_idx), batch_size=1, shuffle=False)
     with torch.no_grad():
-        for _, batch in enumerate(data):
-            x, L, adj = batch
-            adj_ = model(x.double(), L.double())
-            A_ = (adj_[0] > 0.5).float() - torch.eye(adj_[0].shape[0])
-            print(torch.sum(torch.abs(adj - A_)) / (adj_[0].shape[0] ** 2))
-            fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
-            pos = show_graph_with_labels(adj[0].numpy(), ax1)
-            show_graph_with_labels(A_.numpy(), ax2, pos)
-            ax1.set_title("Input")
-            ax2.set_title("Reconstructed")
-            plt.savefig(f"test{_}.pdf")
-            if _ > 10:
-                break
+        for k, batch in enumerate(data):
+            x, L, adjacency = batch
+            adjacency = adjacency[0].numpy()
+            prob_matrix = model(x.double(), L.double())[0].numpy()
+            np.fill_diagonal(prob_matrix, 0)
+            edge_prob_input.append(np.mean(adjacency))
+            edge_prob_pred.append(np.mean(prob_matrix))
+            # remove the self-loops
+            adjacency_pred = prob_matrix > 0.5
+            # compute the reconstruction loss
+            print(np.mean(np.abs(adjacency - adjacency_pred)))
+            # plot_reconstructed_graph(prob_matrix, adjacency, k)
+            plot_probability_matrix(prob_matrix, adjacency, k)
+
+    # plot the empirical edge probility of the reconstructed graph
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_title("Edge prob.")
+    data = pd.DataFrame(
+        data={
+            "kind": ["reconstructed"] * len(edge_prob_pred) + ["input"] * len(edge_prob_input),
+            "density": np.array(edge_prob_pred + edge_prob_input),
+        }
+    )
+    sns.violinplot(data=data, x="kind", y="density", ax=ax)
+    plt.savefig(f"figures/estimated_edge_prob.pdf")
+    plt.close(fig)
+
+
+def plot_reconstructed_graph(adjacency_pred, adjacency, figure_name):
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+    pos = show_graph_with_labels(adjacency_pred, ax1)
+    show_graph_with_labels(adjacency, ax2, pos)
+    ax1.set_title("Reconstructed")
+    ax2.set_title("Input graph")
+    plt.savefig(f"reconstruction{figure_name}.pdf")
+    plt.close(fig)
+
+
+def plot_probability_matrix(probability_matrix, adjacency, figure_name):
+    np.fill_diagonal(probability_matrix, 0)
+    fig, (ax1, ax2) = plt.subplots(1, 2, sharey=True, figsize=(15, 6), subplot_kw={"aspect": "equal"})
+    sns.heatmap(probability_matrix, vmin=0, vmax=1, cmap="Blues", ax=ax1)
+    sns.heatmap(adjacency, vmin=0, vmax=1, cmap="Blues", ax=ax2)
+    ax1.set_title("predicted edge prob.")
+    ax2.set_title("target adjacency matrix")
+    plt.savefig(f"figures/heatmap{figure_name}.pdf")
+    plt.close(fig)
 
 
 def make_parser():
     parser = argparse.ArgumentParser(description="PyTorch GCN Autoencoder")
     parser.add_argument("--hidden", type=int, default=300, help="number of hidden units for the RNN encoder")
     parser.add_argument("--n_layers", type=int, default=4, help="number of layers of the RNN encoder")
-    parser.add_argument("--lr", type=float, default=1e-3, help="initial learning rate")
+    parser.add_argument("--lr", type=float, default=1e-2, help="initial learning rate")
     parser.add_argument("--clip", type=float, default=5, help="gradient clipping")
-    parser.add_argument("--epochs", type=int, default=50, help="upper epoch limit")
+    parser.add_argument("--epochs", type=int, default=1000, help="upper epoch limit")
     parser.add_argument("--batch_size", type=int, default=1, metavar="N", help="batch size")
     parser.add_argument("--dropout", type=float, default=0.1, help="dropout")
     parser.add_argument("--cuda", action="store_true", help="[USE] CUDA")

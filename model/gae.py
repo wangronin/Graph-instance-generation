@@ -8,6 +8,8 @@ from torch import Tensor
 from torch.nn.modules.module import Module
 from torch.nn.parameter import Parameter
 
+__author__ = "Hao Wang"
+
 
 class GraphConvolution(Module):
     """
@@ -48,18 +50,23 @@ class GCNEncoder(nn.Module):
 
     def __init__(self, n_feature: int, n_hidden: int, n_latent: int, dropout: float):
         super(GCNEncoder, self).__init__()
+        # TODO: make the number of GCN layers configurable
         self.gc1 = GraphConvolution(n_feature, n_hidden)
-        self.gc2_mu = GraphConvolution(n_hidden, n_latent)
-        self.gc2_sig = GraphConvolution(n_hidden, n_latent)
+        self.gc2 = GraphConvolution(n_feature, n_hidden)
+        self.gc3 = GraphConvolution(n_feature, n_latent)
+        # self.gc2_mu = GraphConvolution(n_hidden, n_latent)
+        # self.gc2_sig = GraphConvolution(n_hidden, n_latent)
         self.dropout = dropout
 
     def forward(self, x: Tensor, adj: Tensor) -> Tuple[Tensor, Tensor]:
         # First layer shared between mu/sig layers
-        x = F.relu(self.gc1(x, adj))
-        x = F.dropout(x, self.dropout, training=self.training)
-        mu = self.gc2_mu(x, adj)
-        log_sig = self.gc2_sig(x, adj)
-        return mu, torch.exp(log_sig)
+        x = self.gc3(F.relu(self.gc2(F.relu(self.gc1(x, adj)), adj)), adj)
+        # x = F.relu(self.gc1(x, adj))
+        # x = F.dropout(x, self.dropout, training=self.training)
+        # mu = self.gc2_mu(x, adj)
+        # log_sig = self.gc2_sig(x, adj)
+        # return mu, torch.exp(log_sig)
+        return x
 
 
 class InnerProductDecoder(nn.Module):
@@ -82,7 +89,7 @@ class InnerProductDecoder(nn.Module):
 
 
 class GAE(nn.Module):
-    """Graph Auto Encoder"""
+    """Graph AutoEncoder"""
 
     def __init__(self, n_feature: int, n_hidden: int, n_latent: int, dropout: float = 0.0):
         super(GAE, self).__init__()
@@ -97,7 +104,7 @@ class GAE(nn.Module):
 
     def encode(self, *args, **kwargs) -> Tensor:
         r"""Runs the encoder and computes node-wise latent variables."""
-        return self.encoder(*args, **kwargs)[0]
+        return self.encoder(*args, **kwargs)
 
     def decode(self, *args, **kwargs) -> Tensor:
         r"""Runs the decoder and computes edge probabilities."""
@@ -126,4 +133,4 @@ class GAE(nn.Module):
         # return self.loss(torch.concat([A[indices], A[indices_]]), torch.concat([A_[indices], A_[indices_]]))
         # fro_norm = torch.linalg.matrix_norm(adj - adj_)
         # return fro_norm.sum() / (adj.shape[0] ** 2)
-        return torch.sum(torch.abs(adj + torch.eye(adj.shape[1]) - adj_) ** 2)
+        return torch.sum(torch.abs(adj + torch.eye(adj.shape[1]) - adj_) ** 2) / (adj[0].shape[0] ** 2)
