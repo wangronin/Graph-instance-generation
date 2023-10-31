@@ -4,6 +4,8 @@ import sys
 import time
 
 import pandas as pd
+import umap
+from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, "./")
 from typing import Dict, List, Tuple
@@ -160,6 +162,41 @@ def main():
 
     except KeyboardInterrupt:
         print("[Ctrl+C] Training stopped!")
+
+    # visualize the latent space
+    data = DataLoader(Subset(dataset, train_idx), batch_size=1, shuffle=False)
+    adjacencies, features = get_ER_instances(N=n_nodes, p=0.5, n_features=n_features, n_instances=100)
+    dataset2 = GraphDataset(adjacencies, features, device)
+    N = len(data)
+    embeddings = []
+    with torch.no_grad():
+        for k, batch in enumerate(data):
+            x, L, adjacency = batch
+            z = model.encode(x.double(), L.double())[0].numpy()
+            z = np.mean(z, axis=1)
+            embeddings.append(z)
+
+    data2 = DataLoader(dataset2, batch_size=1, shuffle=False)
+    with torch.no_grad():
+        for k, batch in enumerate(data2):
+            x, L, adjacency = batch
+            z = model.encode(x.double(), L.double())[0].numpy()
+            z = np.mean(z, axis=1)
+            embeddings.append(z)
+
+    embeddings = np.vstack(embeddings)
+
+    reducer = umap.UMAP()
+    embeddings_scaled = StandardScaler().fit_transform(embeddings)
+    embeddings = reducer.fit_transform(embeddings_scaled)
+    fig, ax = plt.subplots(1, 1, sharey=True)
+    line = []
+    line += ax.plot(embeddings[:N, 0], embeddings[:N, 1], "k.")
+    line += ax.plot(embeddings[N:, 0], embeddings[N:, 1], "r.")
+    ax.set_xlabel("feature 1")
+    ax.set_xlabel("feature 2")
+    ax.legend(line, ["p=0.2", "p=0.6"])
+    plt.savefig(f"figures/latent_space.pdf")
 
     # plot the reconstructed graphs
     edge_prob_pred = []
